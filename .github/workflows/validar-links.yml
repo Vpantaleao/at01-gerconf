@@ -1,0 +1,54 @@
+name: Validar links internos
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verificar href e src dos arquivos HTML
+        run: |
+          python3 - <<'EOF'
+          import pathlib
+          import sys
+          from html.parser import HTMLParser
+          from urllib.parse import urlsplit, unquote
+
+          RAIZ = pathlib.Path(".")
+          IGNORADOS = ("http:", "https:", "mailto:", "tel:", "javascript:", "data:", "#")
+
+          class Coletor(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.refs = []
+
+              def handle_starttag(self, tag, attrs):
+                  for nome, valor in attrs:
+                      if nome in ("href", "src") and valor:
+                          self.refs.append(valor)
+
+          erros = []
+          arquivos = [p for p in RAIZ.rglob("*.html") if ".git" not in p.parts]
+
+          for arquivo in arquivos:
+              coletor = Coletor()
+              coletor.feed(arquivo.read_text(encoding="utf-8"))
+              for ref in coletor.refs:
+                  if ref.startswith(IGNORADOS):
+                      continue
+                  caminho = unquote(urlsplit(ref).path)
+                  if not caminho:
+                      continue
+                  alvo = (arquivo.parent / caminho).resolve()
+                  if not alvo.exists():
+                      erros.append(f"{arquivo.as_posix()}: '{ref}' nao existe")
+
+          print(f"{len(arquivos)} arquivos HTML verificados")
+          for erro in erros:
+              print(f"ERRO: {erro}")
+          sys.exit(1 if erros else 0)
+          EOF
